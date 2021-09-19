@@ -23,8 +23,8 @@ def cache_checkout_data(request):
         })
         return HttpResponse(status=200)
     except Exception as e:
-        messages.error(request,'Sorry, your payment cannot be \
-            processed right now. Please try again later.' )
+        messages.error(request, 'Sorry, your payment cannot be \
+            processed right now. Please try again later.')
         return HttpResponse(content=e, status=400)
 
 
@@ -48,7 +48,11 @@ def checkout(request):
         }
         order_form = OrderForm(form_data)
         if order_form.is_valid():
-            order = order_form.save()
+            order = order_form.save(commit=False)
+            pid = request.POST.get('client_secret').split('_secret')[0]
+            order.stripe_pid = pid
+            order.original_bag = json.dumps(bag)
+            order.save()
             for item_id, item_data in bag.items():
                 try:
                     product = Product.objects.get(id=item_id)
@@ -75,7 +79,7 @@ def checkout(request):
                     )
                     order.delete()
                     return redirect(reverse('view_bag'))
-            
+
             request.session['save_info'] = 'save-info' in request.POST
             return redirect(reverse('checkout_success', args=[order.order_number]))
         else:
@@ -86,22 +90,20 @@ def checkout(request):
         if not bag:
             messages.error(request, "There's nothing in your bag at the moment")
             return redirect(reverse('products'))
-        
+
         current_bag = bag_contents(request)
         total = current_bag['grand_total']
         stripe_total = round(total * 100)
         stripe.api_key = stripe_secret_key
         intent = stripe.PaymentIntent.create(
             amount=stripe_total,
-            currency=settings.STRIPE_CURRENCY
+            currency=settings.STRIPE_CURRENCY,
         )
-
-        print(intent)
 
         order_form = OrderForm()
 
     if not stripe_public_key:
-        messages.warning(request, 'Stripe pubic key is missing \
+        messages.warning(request, 'Stripe public key is missing. \
             Did you forget to set it in your environment?')
 
     template = 'checkout/checkout.html'
@@ -116,7 +118,7 @@ def checkout(request):
 
 def checkout_success(request, order_number):
     """
-    Handle successful checkout
+    Handle successful checkouts
     """
     save_info = request.session.get('save_info')
     order = get_object_or_404(Order, order_number=order_number)
@@ -133,4 +135,3 @@ def checkout_success(request, order_number):
     }
 
     return render(request, template, context)
-    
